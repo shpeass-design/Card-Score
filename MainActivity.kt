@@ -1,0 +1,253 @@
+package com.example.cardscore
+
+import android.app.Activity
+import android.os.Bundle
+import android.graphics.Color
+import android.graphics.Typeface
+import android.view.Gravity
+import android.view.View
+import android.widget.*
+import android.text.InputType
+import android.graphics.drawable.GradientDrawable
+
+class MainActivity : Activity() {
+    private data class Entry(val a: Int, val b: Int, val label: String)
+    private var scoreA = 0
+    private var scoreB = 0
+    private var target = 50
+    private var playerCount = 4
+    private var teamA = "Team A"
+    private var teamB = "Team B"
+    private var addMode = true
+    private val history = mutableListOf<Entry>()
+    private lateinit var scoreAView: TextView
+    private lateinit var scoreBView: TextView
+    private lateinit var targetView: TextView
+    private lateinit var statusView: TextView
+    private lateinit var historyView: TextView
+    private lateinit var amountInput: EditText
+    private lateinit var teamANameView: TextView
+    private lateinit var teamBNameView: TextView
+    private lateinit var modeButton: Button
+    private lateinit var playerView: TextView
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        window.statusBarColor = Color.rgb(12, 31, 52)
+        window.navigationBarColor = Color.rgb(12, 31, 52)
+        buildUi()
+    }
+
+    private fun buildUi() {
+        val scroll = ScrollView(this)
+        val page = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(18, 18, 18, 24)
+            setBackgroundColor(Color.rgb(242, 246, 250))
+        }
+        scroll.addView(page)
+        setContentView(scroll)
+
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(16, 18, 16, 18)
+            background = rounded(Color.rgb(12, 31, 52), 22)
+        }
+        addText(header, "♠  CARD SCORE  ♥", 25, Color.WHITE, true, Gravity.CENTER)
+        addText(header, "কার্ড গেমের স্কোর রাখুন সহজে", 13, Color.rgb(205, 220, 235), false, Gravity.CENTER)
+        targetView = addText(header, "জয়ের টার্গেট: $target", 16, Color.rgb(255, 220, 120), true, Gravity.CENTER)
+        page.addView(header, marginParams())
+
+        val scoreboard = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val cardA = scoreCard(scoreboard, true)
+        val cardB = scoreCard(scoreboard, false)
+        page.addView(scoreboard, marginParams())
+
+        addText(page, "স্কোর যোগ / বিয়োগ", 19, Color.rgb(20, 43, 67), true)
+        modeButton = Button(this).apply {
+            text = "বর্তমান মোড: যোগ (+)  •  পরিবর্তন করুন"
+            setOnClickListener {
+                addMode = !addMode
+                updateMode()
+            }
+        }
+        page.addView(modeButton, marginParams())
+        amountInput = EditText(this).apply {
+            hint = "পয়েন্ট লিখুন (যেমন ৫)"
+            inputType = InputType.TYPE_CLASS_NUMBER
+            textSize = 18f
+            setPadding(14, 8, 14, 8)
+            background = rounded(Color.WHITE, 12)
+        }
+        page.addView(amountInput, marginParams())
+
+        val scoreButtons = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        actionButton(scoreButtons, "Team A-তে দিন", Color.rgb(22, 119, 86)) { applyScore(true) }
+        actionButton(scoreButtons, "Team B-তে দিন", Color.rgb(36, 103, 166)) { applyScore(false) }
+        page.addView(scoreButtons, marginParams())
+        statusView = addText(page, "খেলা শুরু করুন", 17, Color.rgb(22, 119, 86), true, Gravity.CENTER)
+        statusView.setPadding(4, 10, 4, 10)
+
+        addText(page, "গেম সেটিংস", 19, Color.rgb(20, 43, 67), true)
+        val settings = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = rounded(Color.WHITE, 16); setPadding(10, 8, 10, 8) }
+        actionButton(settings, "টিমের নাম পরিবর্তন", Color.rgb(70, 83, 102)) { renameTeams() }
+        actionButton(settings, "জয়ের টার্গেট পরিবর্তন", Color.rgb(70, 83, 102)) {
+            askNumber("জয়ের টার্গেট", target) { target = it; refresh() }
+        }
+        playerView = addText(settings, "খেলোয়াড় সংখ্যা: $playerCount জন", 14, Color.DKGRAY, true)
+        actionButton(settings, "খেলোয়াড় সংখ্যা পরিবর্তন", Color.rgb(70, 83, 102)) {
+            askNumber("মোট খেলোয়াড় সংখ্যা", playerCount) { playerCount = it; playerView.text = "খেলোয়াড় সংখ্যা: $playerCount জন" }
+        }
+        page.addView(settings, marginParams())
+
+        addText(page, "রাউন্ড হিস্ট্রি", 19, Color.rgb(20, 43, 67), true)
+        historyView = addText(page, "এখনো কোনো রাউন্ড যোগ হয়নি", 14, Color.DKGRAY, false)
+        historyView.setPadding(14, 12, 14, 12)
+        historyView.background = rounded(Color.WHITE, 14)
+
+        val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        actionButton(bottom, "শেষ স্কোর Undo", Color.rgb(190, 111, 34)) { undo() }
+        actionButton(bottom, "নতুন গেম", Color.rgb(177, 55, 55)) { newGame() }
+        page.addView(bottom, marginParams())
+        updateMode()
+        refresh()
+    }
+
+    private fun scoreCard(parent: LinearLayout, isA: Boolean): LinearLayout {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(8, 18, 8, 18)
+            background = rounded(if (isA) Color.rgb(22, 119, 86) else Color.rgb(36, 103, 166), 18)
+        }
+        val lp = LinearLayout.LayoutParams(0, 155, 1f).apply { setMargins(4, 12, 4, 16) }
+        parent.addView(box, lp)
+        val name = addText(box, if (isA) teamA else teamB, 17, Color.WHITE, true, Gravity.CENTER)
+        val score = addText(box, if (isA) scoreA.toString() else scoreB.toString(), 38, Color.WHITE, true, Gravity.CENTER)
+        if (isA) { teamANameView = name; scoreAView = score } else { teamBNameView = name; scoreBView = score }
+        addText(box, "CURRENT SCORE", 10, Color.rgb(225, 238, 245), false, Gravity.CENTER)
+        return box
+    }
+
+    private fun applyScore(isA: Boolean) {
+        val points = amountInput.text.toString().toIntOrNull()
+        if (points == null || points <= 0) {
+            Toast.makeText(this, "০-এর বেশি সঠিক পয়েন্ট লিখুন", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val oldA = scoreA
+        val oldB = scoreB
+        val delta = if (addMode) points else -points
+        if (isA) scoreA = (scoreA + delta).coerceAtLeast(0)
+        else scoreB = (scoreB + delta).coerceAtLeast(0)
+        if ((isA && oldA == scoreA) || (!isA && oldB == scoreB)) {
+            Toast.makeText(this, "স্কোর ০-এর নিচে হতে পারবে না", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val team = if (isA) teamA else teamB
+        val operation = if (addMode) "+$points" else "-$points"
+        history.add(Entry(oldA, oldB, "$team $operation  →  $scoreA : $scoreB"))
+        amountInput.text.clear()
+        refresh()
+    }
+
+    private fun refresh() {
+        scoreAView.text = scoreA.toString()
+        scoreBView.text = scoreB.toString()
+        teamANameView.text = teamA
+        teamBNameView.text = teamB
+        targetView.text = "জয়ের টার্গেট: $target"
+        statusView.text = when {
+            scoreA >= target && scoreA > scoreB -> "🏆 $teamA বিজয়ী!"
+            scoreB >= target && scoreB > scoreA -> "🏆 $teamB বিজয়ী!"
+            scoreA >= target && scoreB >= target && scoreA == scoreB -> "দুই দল সমান — খেলা চলবে"
+            else -> "খেলা চলছে  •  $teamA: $scoreA  |  $teamB: $scoreB"
+        }
+        historyView.text = if (history.isEmpty()) "এখনো কোনো রাউন্ড যোগ হয়নি"
+            else history.mapIndexed { i, e -> "${i + 1}. ${e.label}" }.reversed().joinToString("\\n")
+    }
+
+    private fun undo() {
+        if (history.isEmpty()) {
+            Toast.makeText(this, "Undo করার মতো স্কোর নেই", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val last = history.removeAt(history.lastIndex)
+        scoreA = last.a
+        scoreB = last.b
+        refresh()
+    }
+
+    private fun newGame() {
+        android.app.AlertDialog.Builder(this)
+            .setTitle("নতুন গেম শুরু করবেন?")
+            .setMessage("বর্তমান স্কোর ও রাউন্ড হিস্ট্রি মুছে যাবে।")
+            .setPositiveButton("হ্যাঁ, শুরু করুন") { _, _ ->
+                scoreA = 0; scoreB = 0; history.clear(); refresh()
+            }
+            .setNegativeButton("বাতিল", null).show()
+    }
+
+    private fun renameTeams() {
+        val layout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(22, 8, 22, 0) }
+        val a = EditText(this).apply { setText(teamA); hint = "Team A নাম" }
+        val b = EditText(this).apply { setText(teamB); hint = "Team B নাম" }
+        layout.addView(a); layout.addView(b)
+        android.app.AlertDialog.Builder(this).setTitle("টিমের নাম")
+            .setView(layout)
+            .setPositiveButton("সংরক্ষণ") { _, _ ->
+                teamA = a.text.toString().trim().ifBlank { "Team A" }
+                teamB = b.text.toString().trim().ifBlank { "Team B" }
+                refresh()
+            }.setNegativeButton("বাতিল", null).show()
+    }
+
+    private fun askNumber(title: String, current: Int, save: (Int) -> Unit) {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(current.toString())
+        }
+        android.app.AlertDialog.Builder(this).setTitle(title).setView(input)
+            .setPositiveButton("সংরক্ষণ") { _, _ ->
+                val value = input.text.toString().toIntOrNull()
+                if (value != null && value > 0) save(value)
+                else Toast.makeText(this, "১ বা তার বেশি সংখ্যা দিন", Toast.LENGTH_SHORT).show()
+            }.setNegativeButton("বাতিল", null).show()
+    }
+
+    private fun updateMode() {
+        modeButton.text = if (addMode) "বর্তমান মোড: যোগ (+)  •  পরিবর্তন করুন"
+                          else "বর্তমান মোড: বিয়োগ (−)  •  পরিবর্তন করুন"
+    }
+
+    private fun addText(parent: LinearLayout, value: String, size: Int, color: Int,
+                        bold: Boolean = false, gravity: Int = Gravity.START): TextView {
+        val t = TextView(this).apply {
+            text = value; textSize = size.toFloat(); setTextColor(color); this.gravity = gravity
+            if (bold) setTypeface(null, Typeface.BOLD)
+            setPadding(5, 7, 5, 7)
+        }
+        parent.addView(t)
+        return t
+    }
+
+    private fun actionButton(parent: LinearLayout, label: String, color: Int, action: () -> Unit) {
+        val b = Button(this).apply {
+            text = label; setTextColor(Color.WHITE); background = rounded(color, 12)
+            isAllCaps = false
+            setOnClickListener { action() }
+        }
+        val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            setMargins(3, 4, 3, 4)
+        }
+        parent.addView(b, lp)
+    }
+
+    private fun marginParams() = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+    ).apply { setMargins(0, 5, 0, 10) }
+
+    private fun rounded(color: Int, radius: Int): GradientDrawable =
+        GradientDrawable().apply { setColor(color); cornerRadius = radius.toFloat() }
+}
